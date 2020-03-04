@@ -52,11 +52,12 @@ public class YoutubeManager {
 
     public YoutubeManager() throws IOException {
         super();
-        this.auth(YoutubeManager.CHANNEL_ID[YoutubeManager.currentChannel]);
+        this.auth(CHANNEL_ID[currentChannel]);
     }
 
     protected void auth(String credentialDatastore) throws IOException {
-        //log.info("Authorizing: " + credentialDatastore);
+        //Необходимо выводить текущий аккаунт, т.к. youtube может потребовать авторизоваться в браузере
+        log.info("Authorizing: " + credentialDatastore);
         List<String> scopes = Lists.newArrayList("https://www.googleapis.com/auth/youtube");
 
         // Authorize the request.
@@ -74,7 +75,7 @@ public class YoutubeManager {
      *
      * @param video video data for download.
      */
-    public void UploadVideo(VideoData video) throws GoogleJsonResponseException {
+    public void UploadVideo(VideoData video, String adText) throws GoogleJsonResponseException {
 
         // This OAuth 2.0 access scope allows an application to upload files
         // to the authenticated user's YouTube channel, but doesn't allow
@@ -102,7 +103,7 @@ public class YoutubeManager {
             // and use your own standard names instead.
             Calendar cal = Calendar.getInstance();
             snippet.setTitle(video.getTitle());
-            snippet.setDescription(video.getDescr());
+            snippet.setDescription(String.format("%s\n\n%s", adText, video.getDescr()));
 
             // Set the keyword tags that you want to associate with the video.
             snippet.setTags(video.getTags());
@@ -111,7 +112,7 @@ public class YoutubeManager {
             videoObjectDefiningMetadata.setSnippet(snippet);
 
             InputStreamContent mediaContent = new InputStreamContent(VIDEO_FILE_FORMAT,
-                    new FileInputStream(new File(Main.SOURCE_VIDEO_FILENAME)));
+                    new FileInputStream(new File(Main.ENCODED_VIDEO_FILENAME)));
 
             Video returnedVideo = null;
             while (true) {
@@ -193,7 +194,7 @@ public class YoutubeManager {
             ;
 
             video.setVideoId(returnedVideo.getId());
-            video.setAccount(YoutubeManager.CHANNEL_ID[YoutubeManager.currentChannel]);
+            video.setAccount(CHANNEL_ID[currentChannel]);
 
             // Print data about the newly inserted video from the API response.
             log.info("\n================== Returned Video ==================\n");
@@ -437,7 +438,7 @@ public class YoutubeManager {
     public void deleteCopyrighted() {
         HashMap<String, String> parameters = new HashMap<>();
         parameters.put("part", "contentDetails");
-        //parameters.put("id", YoutubeManager.CHANNEL_ID[YoutubeManager.currentChannel]);
+        //parameters.put("id", CHANNEL_ID[currentChannel]);
 
         YouTube.Channels.List channelRequest = null;
         try {
@@ -446,7 +447,7 @@ public class YoutubeManager {
                 channelRequest.setId(parameters.get("id"));
             }
 
-            //channelsListByIdRequest.setOnBehalfOfContentOwner(YoutubeManager.CHANNEL_ID[YoutubeManager.currentChannel]);
+            //channelsListByIdRequest.setOnBehalfOfContentOwner(CHANNEL_ID[currentChannel]);
             channelRequest.setMine(true);
             channelRequest.setFields("items/contentDetails,nextPageToken,pageInfo");
 

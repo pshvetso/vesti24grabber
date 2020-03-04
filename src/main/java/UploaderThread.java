@@ -33,81 +33,89 @@ public class UploaderThread extends Thread {
     private static final String API_VERSION = "5.57"; // Последняя на данный момент
     private static final String VIDEO_SAVE_URL = "https://api.vk.com/method/video.save";
 
-    private static final Logger log = Logger.getLogger("ParserThread");
-    Connection connection;
-    protected static boolean doAddThumb = true;
+    private static final Logger log = Logger.getLogger("UploaderThread");
+    static boolean midnightRestart = true;
+    private int nextAd = 1;
+    private String adText, adVideo;
 
     public void run() {
-        connect();
+        System.out.println("UploaderThread.run()");
 
         Statement stmt;
-        boolean quit = false;
+        boolean dailyLimitExceeded = false;
 
         try {
             ResultSet rs;
             do {
-                stmt = connection.createStatement();
+                stmt = Util.connection.createStatement();
                 rs = stmt.executeQuery(
                         "SELECT `url`, `stream_url`, `title`, `descr`, `thumb`, `breadcrumbs`, `quality`, `date` FROM `tbl_video` WHERE `video_id` IS NULL;"
                 );
 
-                while (rs.next() && !quit) {
-                    String url = rs.getString("url");
+                queryNextAd();
 
-                    VideoData video = new VideoData(rs.getString("title"), rs.getString("descr"), new ArrayList<>());
-                    video.setDate(rs.getDate("date"));
-                    video.setUrl(rs.getString("url"));
-                    video.setStreamUrl(rs.getString("stream_url"));
-                    video.setThumb(rs.getString("thumb"));
-                    video.setBreadcrumbs(rs.getString("breadcrumbs"));
-                    video.setQuality(rs.getInt("quality"));
-
+                while (rs.next() && !dailyLimitExceeded) {
+                    VideoData video = createVideoData(rs);
                     getVideoStream(video);
-                    String adFile = "ad.mp4";
-                    runReencode(video, adFile);
+                    Integer encoderExitCode = runReencode(video, adVideo);
 
-                    YoutubeManager manager = new YoutubeManager();
+                    if(encoderExitCode == 0) {
+                        YoutubeManager manager = new YoutubeManager();
+                        dailyLimitExceeded = uploadVideo(video, manager);
 
-                    quit = uploadVideo(video, manager);
-
-                    if(video.getVideoId() != null) {
-                        if (doAddThumb && (video.getThumb() != null)) {
-                            manager.UploadThumbnail(video);
-                        }
-
-                        if (video.getBreadcrumbs() != null) {
-                            String playlistId = manager.isPlaylistExists(
-                                    YoutubeManager.CHANNEL_ID[YoutubeManager.currentChannel],
-                                    video.getBreadcrumbs());
-                            if (playlistId == null) {
-                                playlistId = manager.insertPlaylist(video.getBreadcrumbs(), "");
+                        if(video.getVideoId() != null) {
+                            if (midnightRestart && (video.getThumb() != null)) {
+                                manager.UploadThumbnail(video);
                             }
-                            manager.insertPlaylistItem(playlistId, video.getVideoId(), video.getTitle());
 
-                        }
+                            insertVideoIntoPlaylist(video, manager);
+                            updateDb(video);
+                            queryNextAd();
 
-                        updateDb(video);
-
-                        if(doAddThumb) {
-                            if( !vkVideoPasteShare(video) ) {
-                                log.info("Disabling VK posting and thumbnail uploading.");
-                                doAddThumb = false;
+                            if(midnightRestart) {
+                                if( !vkVideoPasteShare(video) ) {
+                                    log.info("Disabling VK posting and thumbnail uploading.");
+                                    midnightRestart = false;
+                                }
                             }
                         }
                     }
                 }
             }
-            while(rs.first() && !quit);
+            while(rs.first() && !dailyLimitExceeded);
 
             rs.close();
         } catch (SQLException | IOException e) {
             e.printStackTrace();
         }
+    }
 
-        disconnect();
+    private VideoData createVideoData(ResultSet rs) throws SQLException {
+        VideoData video = new VideoData(rs.getString("title"), rs.getString("descr"), new ArrayList<>());
+        video.setDate(rs.getDate("date"));
+        video.setUrl(rs.getString("url"));
+        video.setStreamUrl(rs.getString("stream_url"));
+        video.setThumb(rs.getString("thumb"));
+        video.setBreadcrumbs(rs.getString("breadcrumbs"));
+        video.setQuality(rs.getInt("quality"));
+        return video;
+    }
+
+    private void insertVideoIntoPlaylist(VideoData video, YoutubeManager manager) throws IOException {
+        if (video.getBreadcrumbs() != null) {
+            String playlistId = manager.isPlaylistExists(
+                    YoutubeManager.CHANNEL_ID[YoutubeManager.currentChannel],
+                    video.getBreadcrumbs());
+            if (playlistId == null) {
+                playlistId = manager.insertPlaylist(video.getBreadcrumbs(), "");
+            }
+            manager.insertPlaylistItem(playlistId, video.getVideoId(), video.getTitle());
+        }
     }
 
     private static String[] getCommand(String adFile, int quality, String path) {
+        final String VIDEO_FOLDER = "video";
+
         String resolution = "";
         switch(quality) {
             case 360:
@@ -119,7 +127,7 @@ public class UploaderThread extends Thread {
         }
 
         String[] cmd = new String[] {
-                "ffmpeg", "-i", adFile, "-i", Main.SOURCE_VIDEO_FILENAME, "-filter_complex",
+                "ffmpeg", "-y", "-i", String.format("%s/%s", VIDEO_FOLDER, adFile), "-i", Main.SOURCE_VIDEO_FILENAME, "-filter_complex",
                 String.format("[0:v]scale=%s[v0]; [v0][0:a][1:v][1:a]concat=n=2:v=1:a=1[v][a]", resolution),
                 "-map", "[v]", "-map", "[a]", Main.ENCODED_VIDEO_FILENAME
         };
@@ -127,17 +135,17 @@ public class UploaderThread extends Thread {
         return cmd;
     }
 
-    private void runReencode(VideoData video, String adFile) {
+    private Integer runReencode(VideoData video, String adVideo) {
         String path = Util.getJarPath();
-        String[] cmd = getCommand(adFile, video.getQuality(), path);
-        System.out.println(cmd);
-        Util.runSystemCommand(cmd, path);
+        String[] cmd = getCommand(adVideo, video.getQuality(), path);
+        log.info(String.join(" ", cmd));
+        return Util.runSystemCommand(cmd, path);
     }
 
     private boolean uploadVideo(VideoData video, YoutubeManager manager) throws IOException {
         while(video.getVideoId() == null) {
             try {
-                manager.UploadVideo(video);
+                manager.UploadVideo(video, adText);
             } catch (GoogleJsonResponseException e) {
                 if(e.getDetails().getErrors().get(0).getReason().equals("dailyLimitExceeded")) {
                     return true;
@@ -159,7 +167,7 @@ public class UploaderThread extends Thread {
     private void updateDb(VideoData video) {
         String stat = null;
         try {
-            PreparedStatement pstmt = connection.prepareStatement("UPDATE `tbl_video` SET `video_id` = ?, `account` = ? WHERE `url` = ?");
+            PreparedStatement pstmt = Util.connection.prepareStatement("UPDATE `tbl_video` SET `video_id` = ?, `account` = ? WHERE `url` = ?");
             pstmt.setString(1, video.getVideoId());
             pstmt.setString(2, video.getAccount());
             pstmt.setString(3, video.getUrl());
@@ -170,26 +178,6 @@ public class UploaderThread extends Thread {
             log.info(stat);
             e.printStackTrace();
         }
-    }
-
-    private void connect() {
-        String url = "jdbc:mysql://localhost:3306/russia24-tv?useUnicode=true&characterEncoding=utf-8";
-        String username = "root";
-        String password = "nifi2in8u";
-
-        //System.out.println("Connecting database...");
-
-        try {
-            connection = DriverManager.getConnection(url, username, password);
-            //System.out.println("Database connected!");
-        } catch (SQLException e) {
-            throw new IllegalStateException("Cannot connect the database!", e);
-        }
-    }
-
-    public void disconnect() {
-        Util.disconnect(connection);
-        connection = null;
     }
 
     private void getVideoStream(VideoData video) throws IOException {
@@ -208,7 +196,7 @@ public class UploaderThread extends Thread {
             out.close();
         }
 
-        boolean videoDownloaded = false;
+        boolean videoDownloaded;
         do {
             RequestConfig requestConfig = RequestConfig.custom().setConnectTimeout(30 * 1000).build();
             HttpClient httpClient = HttpClientBuilder.create().setDefaultRequestConfig(requestConfig).build();
@@ -219,33 +207,41 @@ public class UploaderThread extends Thread {
             HttpResponse response = httpClient.execute(request);
             HttpEntity entity = response.getEntity();
 
-            BufferedInputStream bis = new BufferedInputStream(entity.getContent());
-            BufferedOutputStream bos = new BufferedOutputStream(
-                    new FileOutputStream(new File(Main.SOURCE_VIDEO_FILENAME)));
-
-            int inByte;
-            try {
-                while ((inByte = bis.read()) != -1) bos.write(inByte);
-                videoDownloaded = true;
-            } catch (SocketException e) {
-                log.info("java.net.SocketException: Connection reset  @stream read, repeating..");
-                //System.out.println("java.net.SocketException: Connection reset  @stream read, repeating..");
-            }
-            catch (SocketTimeoutException e) {
-                log.info("java.net.SocketTimeoutException: Read timed out, repeating..");
-                //System.out.println("java.net.SocketTimeoutException: Read timed out, repeating..");
-            }
-            catch (ConnectionClosedException e) {
-                log.info("ConnectionClosedException: " + e.getMessage());
-                //System.out.println("ConnectionClosedException: " + e.getMessage());
-            }
-
-            bis.close();
-            bos.close();
+            videoDownloaded = readStreamAndHandleErrors(entity);
         } while (!videoDownloaded);
     }
 
-    public static boolean vkVideoPasteShare(VideoData video) {
+    private boolean readStreamAndHandleErrors(HttpEntity entity) throws IOException {
+        boolean videoDownloaded = false;
+
+        BufferedInputStream bis = new BufferedInputStream(entity.getContent());
+        BufferedOutputStream bos = new BufferedOutputStream(
+                new FileOutputStream(new File(Main.SOURCE_VIDEO_FILENAME)));
+
+        int inByte;
+        try {
+            while ((inByte = bis.read()) != -1) bos.write(inByte);
+            videoDownloaded = true;
+        } catch (SocketException e) {
+            log.info("java.net.SocketException: Connection reset  @stream read, repeating..");
+            //System.out.println("java.net.SocketException: Connection reset  @stream read, repeating..");
+        }
+        catch (SocketTimeoutException e) {
+            log.info("java.net.SocketTimeoutException: Read timed out, repeating..");
+            //System.out.println("java.net.SocketTimeoutException: Read timed out, repeating..");
+        }
+        catch (ConnectionClosedException e) {
+            log.info("ConnectionClosedException: " + e.getMessage());
+            //System.out.println("ConnectionClosedException: " + e.getMessage());
+        }
+
+        bis.close();
+        bos.close();
+
+        return videoDownloaded;
+    }
+
+    private boolean vkVideoPasteShare(VideoData video) {
         try (CloseableHttpClient httpClient = HttpClientBuilder.create().build()) {
             String videoURL = "https://youtu.be/" + video.getVideoId();
 
@@ -257,7 +253,7 @@ public class UploaderThread extends Thread {
             params.add(new BasicNameValuePair("link", videoURL));
             //params.add(new BasicNameValuePair("name", video.getTitle()));
             params.add(new BasicNameValuePair("description",
-                    String.format("%s %s\r\n\r\n%s", video.getTitle(), videoURL, video.getDescr())));
+                    String.format("%s\r\n\r\n%s %s\r\n\r\n%s", adText, video.getTitle(), videoURL, video.getDescr())));
             params.add(new BasicNameValuePair("wallpost", "1"));
             params.add(new BasicNameValuePair("access_token", ACCESS_TOKEN));
             params.add(new BasicNameValuePair("v", API_VERSION));
@@ -289,4 +285,29 @@ public class UploaderThread extends Thread {
         return true;
     }
 
+    private void queryNextAd() {
+        try {
+            ResultSet rs;
+            boolean doContinue = false;
+            do{
+                PreparedStatement stmt = Util.connection.prepareStatement(
+                        "SELECT `text`, `video` FROM `ads` WHERE `id` = ?;");
+                stmt.setInt(1, nextAd++);
+
+                rs = stmt.executeQuery();
+
+                if(!rs.next()) {
+                    nextAd = 1;
+                    doContinue = true;
+                    rs.close();
+                }
+            } while(doContinue);
+
+            adText = rs.getString("text");
+            adVideo = rs.getString("video");
+            rs.close();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
 }

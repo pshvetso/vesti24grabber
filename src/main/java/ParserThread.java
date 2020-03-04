@@ -8,7 +8,6 @@ import org.jsoup.Jsoup;
 
 import java.io.FileReader;
 import java.io.IOException;
-import java.nio.file.Paths;
 import java.sql.*;
 import java.text.BreakIterator;
 import java.time.LocalDateTime;
@@ -25,39 +24,17 @@ public class ParserThread implements Runnable {
     //private static final String URL_FORMAT = "https://player.vgtrk.com/iframe/datavideo/id/%d/sid/vh";
     private static final String URL_FORMAT = "https://player.vgtrk.com/iframe/datavideo/id/%d/sid/vesti";
     private static final String TITLE_APPEND_TEXT = " - Россия Сегодня";
-    int VIDEO_ID_SEQ_START = 1815721;
+    int VIDEO_ID_SEQ_START = 2000800;
     private static final int READ_FAILURES_LIMIT = 10;
 
     private static final ArrayList<String> skip_titles = new ArrayList<>();
     private static final Logger log = Logger.getLogger("ParserThread");
     private static UploaderThread thread;
-    private Connection connection;
-
-    ParserThread() {
-        String url = "jdbc:mysql://localhost:3306/russia24-tv?useUnicode=true&characterEncoding=utf-8";
-        String username = "root";
-        String password = "";
-
-        //log.setLevel(Level.ALL);
-        log.info("Connecting database...");
-
-        try {
-            connection = DriverManager.getConnection(url, username, password);
-            log.info("Database connected!");
-        } catch (SQLException e) {
-            throw new IllegalStateException("Cannot connect the database!", e);
-        }
-    }
-
-    void disconnect() {
-        Util.disconnect(connection);
-        connection = null;
-    }
 
     public void run() {
-        if((LocalDateTime.now().getHour() == 0) && (LocalDateTime.now().getMinute() <= 4) && (!UploaderThread.doAddThumb)) {
+        if((LocalDateTime.now().getHour() == 0) && (LocalDateTime.now().getMinute() <= 29) && (!UploaderThread.midnightRestart)) {
             log.info("Re-enabling VK posting and thumbnail uploading.");
-            UploaderThread.doAddThumb = true;
+            UploaderThread.midnightRestart = true;
         }
 
         try {
@@ -67,11 +44,9 @@ public class ParserThread implements Runnable {
             while( in.hasNextLine() ) skip_titles.add( in.nextLine() );
             in.close();
 
-            Statement stmt = null;
-
             int db_url_id = VIDEO_ID_SEQ_START;
             try {
-                stmt = connection.createStatement();
+                Statement stmt = Util.connection.createStatement();
                 ResultSet rs = stmt.executeQuery(
                         "SELECT SUBSTRING_INDEX(SUBSTRING(`url` FROM 46),'/',1) AS `url_id` FROM `tbl_video`"
                         + " ORDER BY CAST(SUBSTRING_INDEX(SUBSTRING(`url` FROM 46),'/',1) AS UNSIGNED) DESC LIMIT 0,1;");
@@ -87,12 +62,12 @@ public class ParserThread implements Runnable {
             //System.out.printf("DB Last url id: %d\r\n", db_url_id);
 
             int failures = READ_FAILURES_LIMIT;
-            boolean startUpload = false;
+            boolean gotNewVideos = false;
 
             while(failures > 0) {
                 VideoData video = readVideoData(++db_url_id);
                 if(video != null) {
-                    if(video.getStreamUrl() != null) startUpload = true;
+                    if(video.getStreamUrl() != null) gotNewVideos = true;
                     failures = READ_FAILURES_LIMIT;
                 }
                 else {
@@ -100,8 +75,14 @@ public class ParserThread implements Runnable {
                 };
             }
 
-            if ( ((thread == null) || !thread.isAlive()) && startUpload ) {
+            boolean uploaderStopped = (thread == null) || !thread.isAlive();
+
+            // start uploader if never started or finished, and got new videos or first time run
+            if (gotNewVideos) {
                 recheckMissedIds();
+            }
+
+            if (uploaderStopped && (gotNewVideos || (thread == null))) {
                 log.info("Starting new Uploader Thread.");
                 thread = new UploaderThread();
                 thread.start();
@@ -112,10 +93,9 @@ public class ParserThread implements Runnable {
     }
 
     public void recheckMissedIds() throws IOException, InterruptedException {
-        Statement stmt = null;
-
+        log.info("Recheck missed IDs started.");
         try {
-            stmt = connection.createStatement();
+            Statement stmt = Util.connection.createStatement();
             ResultSet rs = stmt.executeQuery(
                     "SELECT SUBSTRING_INDEX(SUBSTRING(`url` FROM 46),'/',1) AS `url_id` " +
                             "FROM `tbl_video` " +
@@ -184,14 +164,16 @@ public class ParserThread implements Runnable {
         if((video.getStreamUrl() != null) || (video.getVideoId() != null) ) {
             String stat = null;
             try {
-                PreparedStatement stmt = connection.prepareStatement(
+                PreparedStatement stmt = Util.connection.prepareStatement(
                         "INSERT INTO `tbl_video` (`url`, `stream_url`, `title`, `descr`, `tags`, `thumb`, `breadcrumbs`, `quality`, `video_id`, `date`) VALUES (?,?,?,?,?,?,?,?,?,?)");
 
                 StringBuilder tags = new StringBuilder();
-                String delim = "";
-                for (String i : video.getTags()) {
-                    tags.append(delim).append(i);
-                    delim = ",";
+                if(video.getTags() != null) {
+                    String delim = "";
+                    for (String i : video.getTags()) {
+                        tags.append(delim).append(i);
+                        delim = ",";
+                    }
                 }
 
                 stmt.setString(1, video.getUrl());
@@ -201,7 +183,11 @@ public class ParserThread implements Runnable {
                 stmt.setString(5, tags.toString());
                 stmt.setString(6, video.getThumb());
                 stmt.setString(7, video.getBreadcrumbs());
-                stmt.setInt(8, video.getQuality());
+                if(video.getQuality() != null) {
+                    stmt.setInt(8, video.getQuality());
+                } else {
+                    stmt.setNull(8, Types.INTEGER);
+                }
                 stmt.setString(9, video.getVideoId());
                 stmt.setTimestamp(10, new java.sql.Timestamp(video.getDate().getTime()));
 
@@ -314,7 +300,7 @@ public class ParserThread implements Runnable {
 
         if(video.getStreamUrl() != null)
             try {
-                PreparedStatement stmt = connection.prepareStatement(
+                PreparedStatement stmt = Util.connection.prepareStatement(
                         "SELECT `stream_url` FROM `tbl_video` WHERE `stream_url` = ?;");
                 stmt.setString(1, video.getStreamUrl());
 

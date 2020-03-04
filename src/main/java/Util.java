@@ -4,10 +4,33 @@ import java.io.InputStreamReader;
 import java.net.URISyntaxException;
 import java.nio.file.Paths;
 import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.util.logging.Logger;
 
 public class Util {
-    static void disconnect(Connection connection) {
+    private static final Logger log = Logger.getLogger("Util");
+
+    static Connection connection;
+
+    static void connect() {
+        String url = "jdbc:mysql://localhost:3306/russia24-tv?useUnicode=true&characterEncoding=utf-8&useSSL=false";
+        String username = "root";
+        String password = "";
+
+        //log.setLevel(Level.ALL);
+        log.info("Connecting database...");
+
+        try {
+            connection = DriverManager.getConnection(url, username, password);
+            log.info("Database connected!");
+        } catch (SQLException e) {
+            throw new IllegalStateException("Cannot connect the database!", e);
+        }
+
+    }
+
+    static void disconnect() {
         if (connection != null) {
             try {
                 connection.close();
@@ -15,9 +38,12 @@ public class Util {
                 e.printStackTrace();
             }
         }
+
+        connection = null;
     }
 
-    static void runSystemCommand(String[] cmd, String path) {
+    static Integer runSystemCommand(String[] cmd, String path) {
+        Integer exitCode = null;
         String s;
         Process p;
 
@@ -30,12 +56,15 @@ public class Util {
             while ((s = br.readLine()) != null)
                 System.out.println("line: " + s);
             p.waitFor();
-            System.out.println("exit: " + p.exitValue());
+            exitCode = p.exitValue();
+            System.out.println("exit code: " + exitCode);
 
             p.destroy();
         } catch (Exception e) {
             e.printStackTrace();
         }
+
+        return exitCode;
     }
 
     static String getJarPath() {

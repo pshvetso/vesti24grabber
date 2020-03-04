@@ -1,0 +1,27 @@
+<component name="ArtifactManager">
+  <artifact type="jar" name="vesti24grabber:jar">
+    <output-path>$PROJECT_DIR$/out/artifacts/vesti24grabber_jar</output-path>
+    <root id="archive" name="vesti24grabber.jar">
+      <element id="module-output" name="vesti24grabber" />
+      <element id="library" level="project" name="commons-logging-1.1.1" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/../google-http-client-1.23.0.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/../jetty-util-6.1.26.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/../guava-jdk5-17.0.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/../google-http-client-jackson2-1.23.0.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/../jackson-core-2.9.4.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/../google-oauth-client-jetty-1.23.0.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/../google-api-services-youtube-v3-rev193-1.23.0.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/../google-oauth-client-1.23.0.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/../google-api-client-1.23.0.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/../javax.servlet-api-3.1.0.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/../jsoup-1.11.2.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/../google-oauth-client-java6-1.23.0.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/../mysql-connector-java-5.1.46-bin.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/../jetty-6.1.26.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/../json-20180130.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/../httpclient-4.5.5.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/../httpcore-4.4.9.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/../commons-logging-1.2.jar" path-in-jar="/" />
+    </root>
+  </artifact>
+</component>

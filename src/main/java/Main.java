@@ -23,11 +23,13 @@ public class Main {
         System.setProperty("java.util.logging.SimpleFormatter.format",
                 "%1$tF %1$tT %4$s %2$s %5$s%6$s%n");
 
+        Util.connect();
+
         ParserThread parser = new ParserThread();
-        parser.VIDEO_ID_SEQ_START = Integer.parseInt(args[0]);
+        //parser.VIDEO_ID_SEQ_START = Integer.parseInt(args[0]);
 
         ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
-        executor.scheduleAtFixedRate(parser, 0, 5, TimeUnit.MINUTES);
+        executor.scheduleAtFixedRate(parser, 0, 30, TimeUnit.MINUTES);
 
         // Для авторизации на аккаунте
         //YoutubeManager manager = new YoutubeManager();
@@ -35,7 +37,7 @@ public class Main {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             System.out.println("Inside Add Shutdown Hook");
             executor.shutdownNow();
-            parser.disconnect();
+            Util.disconnect();
         }));
     }
 }
