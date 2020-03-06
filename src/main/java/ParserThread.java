@@ -24,23 +24,21 @@ public class ParserThread implements Runnable {
     //private static final String URL_FORMAT = "https://player.vgtrk.com/iframe/datavideo/id/%d/sid/vh";
     private static final String URL_FORMAT = "https://player.vgtrk.com/iframe/datavideo/id/%d/sid/vesti";
     private static final String TITLE_APPEND_TEXT = " - Россия Сегодня";
-    int VIDEO_ID_SEQ_START = 2000800;
+    private int VIDEO_ID_SEQ_START = 2002550;
     private static final int READ_FAILURES_LIMIT = 10;
 
     private static final ArrayList<String> skip_titles = new ArrayList<>();
     private static final Logger log = Logger.getLogger("ParserThread");
     private static UploaderThread thread;
 
-    public void run() {
-        if((LocalDateTime.now().getHour() == 0) && (LocalDateTime.now().getMinute() <= 29) && (!UploaderThread.midnightRestart)) {
-            log.info("Re-enabling VK posting and thumbnail uploading.");
-            UploaderThread.midnightRestart = true;
-        }
+    static {
+        Util.addFileHandlerToLog(log);
+    }
 
+    public void run() {
         try {
             //System.out.println("ParserThread.run()");
-            Scanner in = null;
-            in = new Scanner( new FileReader(Util.getJarPath() + "/copyrighted.txt") );
+            Scanner in = new Scanner( new FileReader(Util.getInstallPath() + "/copyrighted.txt") );
             while( in.hasNextLine() ) skip_titles.add( in.nextLine() );
             in.close();
 
@@ -48,12 +46,11 @@ public class ParserThread implements Runnable {
             try {
                 Statement stmt = Util.connection.createStatement();
                 ResultSet rs = stmt.executeQuery(
-                        "SELECT SUBSTRING_INDEX(SUBSTRING(`url` FROM 46),'/',1) AS `url_id` FROM `tbl_video`"
-                        + " ORDER BY CAST(SUBSTRING_INDEX(SUBSTRING(`url` FROM 46),'/',1) AS UNSIGNED) DESC LIMIT 0,1;");
+                        "SELECT `source_url_id` FROM `tbl_video` ORDER BY `source_url_id` DESC LIMIT 0,1;");
                 if (rs.next()) {
-                    int url_id = Integer.parseInt(rs.getString("url_id"));
-                    if(url_id > db_url_id)
-                        db_url_id = url_id;
+                    int source_url_id = Integer.parseInt(rs.getString("source_url_id"));
+                    if(source_url_id > db_url_id)
+                        db_url_id = source_url_id;
                 }
                 rs.close();
             } catch (SQLException e) {
@@ -72,7 +69,7 @@ public class ParserThread implements Runnable {
                 }
                 else {
                     failures--;
-                };
+                }
             }
 
             boolean uploaderStopped = (thread == null) || !thread.isAlive();
@@ -92,21 +89,17 @@ public class ParserThread implements Runnable {
         }
     }
 
-    public void recheckMissedIds() throws IOException, InterruptedException {
+    private void recheckMissedIds() throws IOException, InterruptedException {
         log.info("Recheck missed IDs started.");
         try {
             Statement stmt = Util.connection.createStatement();
-            ResultSet rs = stmt.executeQuery(
-                    "SELECT SUBSTRING_INDEX(SUBSTRING(`url` FROM 46),'/',1) AS `url_id` " +
-                            "FROM `tbl_video` " +
-                            "WHERE STRCMP(`url`, \"" + String.format(URL_FORMAT, VIDEO_ID_SEQ_START) + "\") = 1 " +
-                            "ORDER BY CAST(SUBSTRING_INDEX(SUBSTRING(`url` FROM 46),'/',1) AS UNSIGNED) DESC " +
-                            "LIMIT 100;");
+            String query = String.format("SELECT `source_url_id` FROM `tbl_video` WHERE `source_url_id` > %d ORDER BY `source_url_id` DESC LIMIT 100;", VIDEO_ID_SEQ_START);
+            ResultSet rs = stmt.executeQuery(query);
 
             ArrayList<Integer> ids = new ArrayList<>();
 
             while (rs.next()) {
-                ids.add( Integer.parseInt(rs.getString("url_id")) );
+                ids.add(rs.getInt("source_url_id"));
                 //log.info(rs.getString("url_id"));
             }
             rs.close();
@@ -135,7 +128,7 @@ public class ParserThread implements Runnable {
         }
     }
 
-    private VideoData readVideoData(int id) throws IOException, InterruptedException {
+    private VideoData readVideoData(int id) {
         String urlStr = String.format(URL_FORMAT, id);
         //log.info(String.format("Read video %s", urlStr));
 
@@ -165,7 +158,8 @@ public class ParserThread implements Runnable {
             String stat = null;
             try {
                 PreparedStatement stmt = Util.connection.prepareStatement(
-                        "INSERT INTO `tbl_video` (`url`, `stream_url`, `title`, `descr`, `tags`, `thumb`, `breadcrumbs`, `quality`, `video_id`, `date`) VALUES (?,?,?,?,?,?,?,?,?,?)");
+                        "INSERT INTO `tbl_video` (`url`, `source_url_id`, `stream_url`, `title`, `descr`, `tags`, `thumb`, `breadcrumbs`, `quality`, `video_id`, `date`) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
+                );
 
                 StringBuilder tags = new StringBuilder();
                 if(video.getTags() != null) {
@@ -177,19 +171,20 @@ public class ParserThread implements Runnable {
                 }
 
                 stmt.setString(1, video.getUrl());
-                stmt.setString(2, video.getStreamUrl());
-                stmt.setString(3, video.getTitle());
-                stmt.setString(4, video.getDescr());
-                stmt.setString(5, tags.toString());
-                stmt.setString(6, video.getThumb());
-                stmt.setString(7, video.getBreadcrumbs());
+                stmt.setInt(2, video.getSourceUrlId());
+                stmt.setString(3, video.getStreamUrl());
+                stmt.setString(4, video.getTitle());
+                stmt.setString(5, video.getDescr());
+                stmt.setString(6, tags.toString());
+                stmt.setString(7, video.getThumb());
+                stmt.setString(8, video.getBreadcrumbs());
                 if(video.getQuality() != null) {
-                    stmt.setInt(8, video.getQuality());
+                    stmt.setInt(9, video.getQuality());
                 } else {
-                    stmt.setNull(8, Types.INTEGER);
+                    stmt.setNull(9, Types.INTEGER);
                 }
-                stmt.setString(9, video.getVideoId());
-                stmt.setTimestamp(10, new java.sql.Timestamp(video.getDate().getTime()));
+                stmt.setString(10, video.getVideoId());
+                stmt.setTimestamp(11, new java.sql.Timestamp(video.getDate().getTime()));
 
                 stat = stmt.toString();
                 stmt.execute();
@@ -207,6 +202,7 @@ public class ParserThread implements Runnable {
 
     private VideoData getVideo(String url) {
         try (CloseableHttpClient httpClient = HttpClientBuilder.create().setUserAgent(Main.USER_AGENT).build()) {
+            //System.out.println("HttpClientBuilder created");
             HttpGet request = new HttpGet(url);
             request.addHeader("content-type", "application/json");
             HttpResponse result = httpClient.execute(request);
@@ -239,7 +235,9 @@ public class ParserThread implements Runnable {
         log.info(video.getTitle());
         log.info(video.getDescr());
         video.setUrl(url);
+        //https://player.vgtrk.com/iframe/datavideo/id/2001901/sid/vesti
         log.info(video.getUrl());
+        video.setSourceUrlId(Integer.parseInt(video.getUrl().substring(45, 52)));
 
         Object picture = medialist.get("picture");
         if(picture instanceof String) {
@@ -314,9 +312,5 @@ public class ParserThread implements Runnable {
             }
 
         return result;
-    }
-
-    public static String html2text(String html) {
-        return Jsoup.parse(html).text();
     }
 }

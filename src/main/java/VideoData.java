@@ -6,6 +6,7 @@ import java.util.List;
  */
 public class VideoData {
     private String url;
+    private Integer sourceUrlId;
     private String streamUrl;
     private String title;
     private String descr;
@@ -35,6 +36,14 @@ public class VideoData {
 
     void setUrl(String url) {
         this.url = url;
+    }
+
+    public Integer getSourceUrlId() {
+        return sourceUrlId;
+    }
+
+    public void setSourceUrlId(Integer sourceUrlId) {
+        this.sourceUrlId = sourceUrlId;
     }
 
     String getStreamUrl() {

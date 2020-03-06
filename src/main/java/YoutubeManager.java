@@ -37,12 +37,12 @@ public class YoutubeManager {
      */
     private static final String APPLICATION_NAME = "youtube-manager";
 
-    protected static final String[] CHANNEL_ID = {  "UCzgWe67JoVHlcg8uRhtRAxQ",     // Россия Сегодня
-                                                    "UCwoeVRmTU58XbxStt2uqPQg",     // Россия Live
-                                                    "UCENs0Cuo7yqoAdlFFvgHGUA"};    // Факты 24
+    static final String[] CHANNEL_ID = {"UCzgWe67JoVHlcg8uRhtRAxQ",     // Россия Сегодня
+                                        "UCwoeVRmTU58XbxStt2uqPQg",     // Россия Live
+                                        "UCENs0Cuo7yqoAdlFFvgHGUA"};    // Факты 24
 
 
-    protected static int currentChannel = 0;
+    static int currentChannel = 0;
 
     /**
      * Define a global instance of a Youtube object, which will be used
@@ -50,12 +50,16 @@ public class YoutubeManager {
      */
     private YouTube youtube;
 
-    public YoutubeManager() throws IOException {
+    static {
+        Util.addFileHandlerToLog(log);
+    }
+
+    YoutubeManager() throws IOException {
         super();
         this.auth(CHANNEL_ID[currentChannel]);
     }
 
-    protected void auth(String credentialDatastore) throws IOException {
+    void auth(String credentialDatastore) throws IOException {
         //Необходимо выводить текущий аккаунт, т.к. youtube может потребовать авторизоваться в браузере
         log.info("Authorizing: " + credentialDatastore);
         List<String> scopes = Lists.newArrayList("https://www.googleapis.com/auth/youtube");
@@ -75,7 +79,7 @@ public class YoutubeManager {
      *
      * @param video video data for download.
      */
-    public void UploadVideo(VideoData video, String adText) throws GoogleJsonResponseException {
+    void UploadVideo(VideoData video, String adText) throws GoogleJsonResponseException {
 
         // This OAuth 2.0 access scope allows an application to upload files
         // to the authenticated user's YouTube channel, but doesn't allow
@@ -101,7 +105,6 @@ public class YoutubeManager {
             // description for test purposes so that you can easily upload
             // multiple files. You should remove this code from your project
             // and use your own standard names instead.
-            Calendar cal = Calendar.getInstance();
             snippet.setTitle(video.getTitle());
             snippet.setDescription(String.format("%s\n\n%s", adText, video.getDescr()));
 
@@ -112,7 +115,7 @@ public class YoutubeManager {
             videoObjectDefiningMetadata.setSnippet(snippet);
 
             InputStreamContent mediaContent = new InputStreamContent(VIDEO_FILE_FORMAT,
-                    new FileInputStream(new File(Main.ENCODED_VIDEO_FILENAME)));
+                    new FileInputStream(new File(Util.getInstallPath() + "/" + Main.ENCODED_VIDEO_FILENAME)));
 
             Video returnedVideo = null;
             while (true) {
@@ -144,28 +147,26 @@ public class YoutubeManager {
                 // time and bandwidth in the event of network failures.
                 uploader.setDirectUploadEnabled(false);
 
-                MediaHttpUploaderProgressListener progressListener = new MediaHttpUploaderProgressListener() {
-                    public void progressChanged(MediaHttpUploader uploader) throws IOException {
-                        switch (uploader.getUploadState()) {
-                            case INITIATION_STARTED:
-                                log.info("Initiation Started");
-                                break;
-                            case INITIATION_COMPLETE:
-                                log.info("Initiation Completed");
-                                break;
-                            case MEDIA_IN_PROGRESS:
-                                log.info("Upload in progress");
-                                log.info("Upload percentage: "
-                                        + uploader.getNumBytesUploaded());
-                                //log.info("mediaContent.getLength() " + mediaContent.getLength());
-                                break;
-                            case MEDIA_COMPLETE:
-                                log.info("Upload Completed!");
-                                break;
-                            case NOT_STARTED:
-                                log.info("Upload Not Started!");
-                                break;
-                        }
+                MediaHttpUploaderProgressListener progressListener = uploader1 -> {
+                    switch (uploader1.getUploadState()) {
+                        case INITIATION_STARTED:
+                            log.info("Initiation Started");
+                            break;
+                        case INITIATION_COMPLETE:
+                            log.info("Initiation Completed");
+                            break;
+                        case MEDIA_IN_PROGRESS:
+                            log.info("Upload in progress");
+                            log.info("Upload percentage: "
+                                    + uploader1.getNumBytesUploaded());
+                            //log.info("mediaContent.getLength() " + mediaContent.getLength());
+                            break;
+                        case MEDIA_COMPLETE:
+                            log.info("Upload Completed!");
+                            break;
+                        case NOT_STARTED:
+                            log.info("Upload Not Started!");
+                            break;
                     }
                 };
                 uploader.setProgressListener(progressListener);
@@ -191,7 +192,6 @@ public class YoutubeManager {
                     continue;
                 }
             }
-            ;
 
             video.setVideoId(returnedVideo.getId());
             video.setAccount(CHANNEL_ID[currentChannel]);
@@ -210,7 +210,7 @@ public class YoutubeManager {
         }
     }
 
-    public void UploadThumbnail(VideoData video) {
+    void UploadThumbnail(VideoData video) {
         // This OAuth 2.0 access scope allows for full read/write access to the
         // authenticated user's account.
 
@@ -228,7 +228,7 @@ public class YoutubeManager {
                 log.info("You chose " + videoId + " to upload a thumbnail.");
 
                 // Prompt the user to specify the location of the thumbnail image.
-                File imageFile = new File(Main.THUMB_FILENAME);
+                File imageFile = new File(Util.getInstallPath() + "/" + Main.THUMB_FILENAME);
                 //log.info("You chose " + imageFile + " to upload.");
 
                 // Create an object that contains the thumbnail image file's
@@ -255,37 +255,34 @@ public class YoutubeManager {
                 uploader.setDirectUploadEnabled(false);
 
                 // Set the upload state for the thumbnail image.
-                MediaHttpUploaderProgressListener progressListener = new MediaHttpUploaderProgressListener() {
-                    @Override
-                    public void progressChanged(MediaHttpUploader uploader) throws IOException {
-                        switch (uploader.getUploadState()) {
-                            // This value is set before the initiation request is
-                            // sent.
-                            case INITIATION_STARTED:
-                                log.info("Initiation Started");
-                                break;
-                            // This value is set after the initiation request
-                            //  completes.
-                            case INITIATION_COMPLETE:
-                                log.info("Initiation Completed");
-                                break;
-                            // This value is set after a media file chunk is
-                            // uploaded.
-                            case MEDIA_IN_PROGRESS:
-                                log.info("Upload in progress");
-                                log.info("Upload percentage: " + uploader.getProgress());
-                                break;
-                            // This value is set after the entire media file has
-                            //  been successfully uploaded.
-                            case MEDIA_COMPLETE:
-                                log.info("Upload Completed!");
-                                break;
-                            // This value indicates that the upload process has
-                            //  not started yet.
-                            case NOT_STARTED:
-                                log.info("Upload Not Started!");
-                                break;
-                        }
+                MediaHttpUploaderProgressListener progressListener = uploader1 -> {
+                    switch (uploader1.getUploadState()) {
+                        // This value is set before the initiation request is
+                        // sent.
+                        case INITIATION_STARTED:
+                            log.info("Initiation Started");
+                            break;
+                        // This value is set after the initiation request
+                        //  completes.
+                        case INITIATION_COMPLETE:
+                            log.info("Initiation Completed");
+                            break;
+                        // This value is set after a media file chunk is
+                        // uploaded.
+                        case MEDIA_IN_PROGRESS:
+                            log.info("Upload in progress");
+                            log.info("Upload percentage: " + uploader1.getProgress());
+                            break;
+                        // This value is set after the entire media file has
+                        //  been successfully uploaded.
+                        case MEDIA_COMPLETE:
+                            log.info("Upload Completed!");
+                            break;
+                        // This value indicates that the upload process has
+                        //  not started yet.
+                        case NOT_STARTED:
+                            log.info("Upload Not Started!");
+                            break;
                     }
                 };
                 uploader.setProgressListener(progressListener);
@@ -311,7 +308,7 @@ public class YoutubeManager {
 
     }
 
-    public PlaylistListResponse ListPlaylists(String channelId) {
+    private PlaylistListResponse ListPlaylists(String channelId) {
         //YouTube youtube = getYouTubeService();
 
         try {
@@ -320,13 +317,13 @@ public class YoutubeManager {
             parameters.put("channelId", channelId);
             parameters.put("maxResults", "50");
 
-            YouTube.Playlists.List playlistsListByChannelIdRequest = youtube.playlists().list(parameters.get("part").toString());
-            if (parameters.containsKey("channelId") && parameters.get("channelId") != "") {
-                playlistsListByChannelIdRequest.setChannelId(parameters.get("channelId").toString());
+            YouTube.Playlists.List playlistsListByChannelIdRequest = youtube.playlists().list(parameters.get("part"));
+            if (parameters.containsKey("channelId") && !parameters.get("channelId").equals("")) {
+                playlistsListByChannelIdRequest.setChannelId(parameters.get("channelId"));
             }
 
             if (parameters.containsKey("maxResults")) {
-                playlistsListByChannelIdRequest.setMaxResults(Long.parseLong(parameters.get("maxResults").toString()));
+                playlistsListByChannelIdRequest.setMaxResults(Long.parseLong(parameters.get("maxResults")));
             }
 
             PlaylistListResponse response = playlistsListByChannelIdRequest.execute();
@@ -343,12 +340,14 @@ public class YoutubeManager {
         return null;
     }
 
-    public String isPlaylistExists(String channelId, String title) {
+    String isPlaylistExists(String channelId, String title) {
         PlaylistListResponse response = ListPlaylists(channelId);
 
-        for (Playlist list : response.getItems()) {
-            if (list.getSnippet().getTitle().equals(title)) {
-                return list.getId();
+        if(response != null) {
+            for (Playlist list : response.getItems()) {
+                if (list.getSnippet().getTitle().equals(title)) {
+                    return list.getId();
+                }
             }
         }
 
@@ -358,7 +357,7 @@ public class YoutubeManager {
     /**
      * Create a playlist and add it to the authorized account.
      */
-    public String insertPlaylist(String title, String descr) throws IOException {
+    String insertPlaylist(String title, String descr) throws IOException {
 
         // This code constructs the playlist resource that is being inserted.
         // It defines the playlist's title, description, and privacy status.
@@ -397,7 +396,7 @@ public class YoutubeManager {
      * @param playlistId assign to newly created playlistitem
      * @param videoId    YouTube video id to add to playlistitem
      */
-    public String insertPlaylistItem(String playlistId, String videoId, String snippetTitle) throws IOException {
+    String insertPlaylistItem(String playlistId, String videoId, String snippetTitle) throws IOException {
 
         // Define a resourceId that identifies the video being added to the
         // playlist.
@@ -440,10 +439,10 @@ public class YoutubeManager {
         parameters.put("part", "contentDetails");
         //parameters.put("id", CHANNEL_ID[currentChannel]);
 
-        YouTube.Channels.List channelRequest = null;
+        YouTube.Channels.List channelRequest;
         try {
             channelRequest = youtube.channels().list(parameters.get("part"));
-            if (parameters.containsKey("id") && parameters.get("id") != "") {
+            if (parameters.containsKey("id") && !parameters.get("id").equals("")) {
                 channelRequest.setId(parameters.get("id"));
             }
 

@@ -3,7 +3,6 @@
     <output-path>$PROJECT_DIR$/out/artifacts/vesti24grabber_jar</output-path>
     <root id="archive" name="vesti24grabber.jar">
       <element id="module-output" name="vesti24grabber" />
-      <element id="library" level="project" name="commons-logging-1.1.1" />
       <element id="extracted-dir" path="$PROJECT_DIR$/../google-http-client-1.23.0.jar" path-in-jar="/" />
       <element id="extracted-dir" path="$PROJECT_DIR$/../jetty-util-6.1.26.jar" path-in-jar="/" />
       <element id="extracted-dir" path="$PROJECT_DIR$/../guava-jdk5-17.0.jar" path-in-jar="/" />

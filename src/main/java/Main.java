@@ -6,10 +6,9 @@ public class Main {
 
     static final String SOURCE_VIDEO_FILENAME = "stream.mp4";
     static final String ENCODED_VIDEO_FILENAME = "encoded.mp4";
-
     static final String THUMB_FILENAME = "thumb.jpg";
-
     static final String USER_AGENT = "Mozilla/5.0 (Windows; U; WindowsNT 5.1; en-US; rv1.8.1.6) Gecko/20070725 Firefox/2.0.0.7";
+    static private final byte CRAWLER_PERIOD = 15;
 
     /*public static void main(String[] args) throws IOException, URISyntaxException {
         System.setProperty("java.util.logging.SimpleFormatter.format",
@@ -20,8 +19,7 @@ public class Main {
     }*/
 
     public static void main(String[] args) {
-        System.setProperty("java.util.logging.SimpleFormatter.format",
-                "%1$tF %1$tT %4$s %2$s %5$s%6$s%n");
+        System.setProperty("java.util.logging.SimpleFormatter.format", "%1$tF %1$tT %4$s %2$s %5$s%6$s%n");
 
         Util.connect();
 
@@ -29,10 +27,19 @@ public class Main {
         //parser.VIDEO_ID_SEQ_START = Integer.parseInt(args[0]);
 
         ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
-        executor.scheduleAtFixedRate(parser, 0, 30, TimeUnit.MINUTES);
+        executor.scheduleAtFixedRate(parser, 0, CRAWLER_PERIOD, TimeUnit.MINUTES);
+
+        Util.scheduleTask(() -> {
+            System.out.println("Re-enabling VK posting and thumbnail uploading.");
+            UploaderThread.midnightRestart = true;
+        }, 0, 0, 0);
 
         // Для авторизации на аккаунте
-        //YoutubeManager manager = new YoutubeManager();
+        /*try {
+            new YoutubeManager();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }*/
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             System.out.println("Inside Add Shutdown Hook");

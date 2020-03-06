@@ -35,33 +35,39 @@ public class UploaderThread extends Thread {
 
     private static final Logger log = Logger.getLogger("UploaderThread");
     static boolean midnightRestart = true;
+    static private byte switchFailures = 0;
     private int nextAd = 1;
     private String adText, adVideo;
+
+    static {
+        Util.addFileHandlerToLog(log);
+    }
 
     public void run() {
         System.out.println("UploaderThread.run()");
 
         Statement stmt;
-        boolean dailyLimitExceeded = false;
+        boolean stopUpload = false;
 
         try {
             ResultSet rs;
             do {
                 stmt = Util.connection.createStatement();
                 rs = stmt.executeQuery(
-                        "SELECT `url`, `stream_url`, `title`, `descr`, `thumb`, `breadcrumbs`, `quality`, `date` FROM `tbl_video` WHERE `video_id` IS NULL;"
+                    "SELECT `url`, `source_url_id`, `stream_url`, `title`, `descr`, `thumb`, `breadcrumbs`, `quality`, `date` FROM `tbl_video` WHERE `video_id` IS NULL ORDER BY `source_url_id` DESC;"
                 );
 
                 queryNextAd();
 
-                while (rs.next() && !dailyLimitExceeded) {
+                while (rs.next() && !stopUpload) {
                     VideoData video = createVideoData(rs);
                     getVideoStream(video);
                     Integer encoderExitCode = runReencode(video, adVideo);
+                    //Integer encoderExitCode = 0;
 
                     if(encoderExitCode == 0) {
                         YoutubeManager manager = new YoutubeManager();
-                        dailyLimitExceeded = uploadVideo(video, manager);
+                        stopUpload = uploadVideo(video, manager);
 
                         if(video.getVideoId() != null) {
                             if (midnightRestart && (video.getThumb() != null)) {
@@ -69,7 +75,6 @@ public class UploaderThread extends Thread {
                             }
 
                             insertVideoIntoPlaylist(video, manager);
-                            updateDb(video);
                             queryNextAd();
 
                             if(midnightRestart) {
@@ -79,13 +84,19 @@ public class UploaderThread extends Thread {
                                 }
                             }
                         }
+                    } else {
+                        video.setVideoId("@encode-error");
                     }
+
+                    updateDb(video);
                 }
             }
-            while(rs.first() && !dailyLimitExceeded);
+            while(rs.first() && !stopUpload);
 
             rs.close();
         } catch (SQLException | IOException e) {
+            e.printStackTrace();
+        } catch (InterruptedException e) {
             e.printStackTrace();
         }
     }
@@ -94,6 +105,7 @@ public class UploaderThread extends Thread {
         VideoData video = new VideoData(rs.getString("title"), rs.getString("descr"), new ArrayList<>());
         video.setDate(rs.getDate("date"));
         video.setUrl(rs.getString("url"));
+        video.setSourceUrlId(rs.getInt("source_url_id"));
         video.setStreamUrl(rs.getString("stream_url"));
         video.setThumb(rs.getString("thumb"));
         video.setBreadcrumbs(rs.getString("breadcrumbs"));
@@ -113,7 +125,7 @@ public class UploaderThread extends Thread {
         }
     }
 
-    private static String[] getCommand(String adFile, int quality, String path) {
+    private static String[] getFFMPEGCommand(String adFile, int quality) {
         final String VIDEO_FOLDER = "video";
 
         String resolution = "";
@@ -124,6 +136,16 @@ public class UploaderThread extends Thread {
             case 540:
                 resolution = "960:540";
                 break;
+            case 720:
+                resolution = "1280:720";
+                break;
+            default:
+                log.info("Resolution profile not found: " + quality);
+                break;
+        }
+
+        if(resolution.equals("")) {
+            return new String[] {};
         }
 
         String[] cmd = new String[] {
@@ -135,14 +157,19 @@ public class UploaderThread extends Thread {
         return cmd;
     }
 
-    private Integer runReencode(VideoData video, String adVideo) {
-        String path = Util.getJarPath();
-        String[] cmd = getCommand(adVideo, video.getQuality(), path);
+    private Integer runReencode(VideoData video, String adVideo) throws IOException, InterruptedException {
+        String path = Util.getInstallPath();
+        String[] cmd = getFFMPEGCommand(adVideo, video.getQuality());
+        if(cmd.length == 0) {
+            return -1;
+        }
         log.info(String.join(" ", cmd));
-        return Util.runSystemCommand(cmd, path);
+        return Util.runSystemCommand(cmd, path, video.getSourceUrlId().toString()+".txt");
     }
 
     private boolean uploadVideo(VideoData video, YoutubeManager manager) throws IOException {
+        Integer nChannels = YoutubeManager.CHANNEL_ID.length;
+
         while(video.getVideoId() == null) {
             try {
                 manager.UploadVideo(video, adText);
@@ -152,12 +179,20 @@ public class UploaderThread extends Thread {
                 }
             }
 
+            if(switchFailures >= nChannels) {
+                log.info(String.format("%d channels switched in a row, quitting", nChannels));
+                return true;
+            }
+
             if(video.getVideoId() == null) {
                 YoutubeManager.currentChannel++;
-                if(YoutubeManager.currentChannel >= YoutubeManager.CHANNEL_ID.length)
+                if(YoutubeManager.currentChannel >= nChannels)
                     YoutubeManager.currentChannel = 0;
                 log.info(":::::Switching account on: " + YoutubeManager.CHANNEL_ID[YoutubeManager.currentChannel]);
                 manager.auth(YoutubeManager.CHANNEL_ID[YoutubeManager.currentChannel]);
+                switchFailures++;
+            } else {
+                switchFailures = 0;
             }
         }
 
@@ -181,7 +216,7 @@ public class UploaderThread extends Thread {
     }
 
     private void getVideoStream(VideoData video) throws IOException {
-        log.info("Downloading stream: " + video.getTitle());
+        log.info(String.format("Downloading stream: %s %s", video.getUrl(), video.getTitle()));
 
         if(video.getThumb() != null) {
             byte[] responseBytes = Jsoup.connect(video.getThumb())
@@ -191,7 +226,7 @@ public class UploaderThread extends Thread {
                     .timeout(60000)
                     .execute()
                     .bodyAsBytes();
-            FileOutputStream out = new FileOutputStream(new java.io.File(Main.THUMB_FILENAME));
+            FileOutputStream out = new FileOutputStream(new java.io.File(Util.getInstallPath() + "/" + Main.THUMB_FILENAME));
             out.write(responseBytes);  // resultImageResponse.body() is where the image's contents are.
             out.close();
         }
@@ -216,7 +251,7 @@ public class UploaderThread extends Thread {
 
         BufferedInputStream bis = new BufferedInputStream(entity.getContent());
         BufferedOutputStream bos = new BufferedOutputStream(
-                new FileOutputStream(new File(Main.SOURCE_VIDEO_FILENAME)));
+                new FileOutputStream(new File(Util.getInstallPath() + "/" + Main.SOURCE_VIDEO_FILENAME)));
 
         int inByte;
         try {
